@@ -331,7 +331,7 @@ func (c *Client) collectDrives(sys *redfish.ComputerSystem, device *common.Devic
 		for _, drive := range drives {
 			d := &common.Drive{
 				Common: common.Common{
-					ProductName: drive.Model,
+					ProductName: drive.Name,
 					Description: drive.Description,
 					Serial:      drive.SerialNumber,
 					Vendor:      common.FormatVendorName(drive.Manufacturer),
@@ -353,6 +353,14 @@ func (c *Client) collectDrives(sys *redfish.ComputerSystem, device *common.Devic
 				CapableSpeedGbps:    int64(drive.CapableSpeedGbs),
 				NegotiatedSpeedGbps: int64(drive.NegotiatedSpeedGbs),
 				BlockSizeBytes:      int64(drive.BlockSizeBytes),
+			}
+
+			for _, identifier := range drive.Identifiers {
+				if strings.EqualFold(string(identifier.DurableNameFormat), "naa") &&
+					len(identifier.DurableName) > 0 {
+					d.WWN = identifier.DurableName
+					break
+				}
 			}
 
 			// include additional firmware attributes from redfish firmware inventory
@@ -399,6 +407,10 @@ func (c *Client) collectStorageControllers(sys *redfish.ComputerSystem, device *
 			// In some cases the storage controller model number is present in the Name field
 			if strings.TrimSpace(cs.Model) == "" && strings.TrimSpace(controller.Name) != "" {
 				cs.Model = controller.Name
+			}
+
+			if len(strings.TrimSpace(c.ID)) == 0 {
+				c.ID = member.ID
 			}
 
 			// include additional firmware attributes from redfish firmware inventory
