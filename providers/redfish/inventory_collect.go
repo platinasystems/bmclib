@@ -326,7 +326,7 @@ func (i *inventory) collectDrives(sys *gofishrf.ComputerSystem, device *common.D
 		for _, drive := range drives {
 			d := &common.Drive{
 				Common: common.Common{
-					ProductName: drive.Model,
+					ProductName: drive.Name,
 					Description: drive.Description,
 					Serial:      drive.SerialNumber,
 					Vendor:      common.FormatVendorName(drive.Manufacturer),
@@ -348,6 +348,14 @@ func (i *inventory) collectDrives(sys *gofishrf.ComputerSystem, device *common.D
 				CapableSpeedGbps:    int64(drive.CapableSpeedGbs),
 				NegotiatedSpeedGbps: int64(drive.NegotiatedSpeedGbs),
 				BlockSizeBytes:      int64(drive.BlockSizeBytes),
+			}
+
+			for _, identifier := range drive.Identifiers {
+				if strings.EqualFold(string(identifier.DurableNameFormat), "naa") &&
+					len(identifier.DurableName) > 0 {
+					d.WWN = identifier.DurableName
+					break
+				}
 			}
 
 			// include additional firmware attributes from redfish firmware inventory
@@ -394,6 +402,10 @@ func (i *inventory) collectStorageControllers(sys *gofishrf.ComputerSystem, devi
 			// In some cases the storage controller model number is present in the Name field
 			if strings.TrimSpace(c.Model) == "" && strings.TrimSpace(controller.Name) != "" {
 				c.Model = controller.Name
+			}
+
+			if len(strings.TrimSpace(c.ID)) == 0 {
+				c.ID = member.ID
 			}
 
 			// include additional firmware attributes from redfish firmware inventory
