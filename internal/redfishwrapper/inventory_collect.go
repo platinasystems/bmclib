@@ -444,7 +444,7 @@ func (c *Client) collectStorageControllers(sys *redfish.ComputerSystem, device *
 						return err
 					}
 					for _, drive := range drives {
-						i.collectDrive(drive, member.ID)
+						v.PhysicalDrives = append(v.PhysicalDrives, i.collectDrive(drive, member.ID))
 					}
 					c.Volumes = append(c.Volumes, v)
 				}
