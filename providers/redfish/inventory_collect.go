@@ -324,50 +324,56 @@ func (i *inventory) collectDrives(sys *gofishrf.ComputerSystem, device *common.D
 		}
 
 		for _, drive := range drives {
-			d := &common.Drive{
-				Common: common.Common{
-					ProductName: drive.Name,
-					Description: drive.Description,
-					Serial:      drive.SerialNumber,
-					Vendor:      common.FormatVendorName(drive.Manufacturer),
-					Model:       drive.Model,
-					Firmware: &common.Firmware{
-						Installed: drive.Revision,
-					},
-					Status: &common.Status{
-						Health: string(drive.Status.Health),
-						State:  string(drive.Status.State),
-					},
-				},
-
-				ID:                  drive.ID,
-				Type:                string(drive.MediaType),
-				StorageController:   member.ID,
-				Protocol:            string(drive.Protocol),
-				CapacityBytes:       drive.CapacityBytes,
-				CapableSpeedGbps:    int64(drive.CapableSpeedGbs),
-				NegotiatedSpeedGbps: int64(drive.NegotiatedSpeedGbs),
-				BlockSizeBytes:      int64(drive.BlockSizeBytes),
-			}
-
-			for _, identifier := range drive.Identifiers {
-				if strings.EqualFold(string(identifier.DurableNameFormat), "naa") &&
-					len(identifier.DurableName) > 0 {
-					d.WWN = identifier.DurableName
-					break
-				}
-			}
-
-			// include additional firmware attributes from redfish firmware inventory
-			i.firmwareAttributes("Disk", drive.ID, d.Firmware)
-
-			device.Drives = append(device.Drives, d)
-
+			device.Drives = append(device.Drives, i.collectDrive(drive, member.ID))
 		}
-
 	}
 
 	return nil
+}
+
+func (i *inventory) collectDrive(srcDrive *gofishrf.Drive, controllerID string) (dstDrive *common.Drive) {
+	if srcDrive == nil {
+		return
+	}
+
+	dstDrive = &common.Drive{
+		Common: common.Common{
+			ProductName: srcDrive.Name,
+			Description: srcDrive.Description,
+			Serial:      srcDrive.SerialNumber,
+			Vendor:      common.FormatVendorName(srcDrive.Manufacturer),
+			Model:       srcDrive.Model,
+			Firmware: &common.Firmware{
+				Installed: srcDrive.Revision,
+			},
+			Status: &common.Status{
+				Health: string(srcDrive.Status.Health),
+				State:  string(srcDrive.Status.State),
+			},
+		},
+
+		ID:                  srcDrive.ID,
+		Type:                string(srcDrive.MediaType),
+		StorageController:   controllerID,
+		Protocol:            string(srcDrive.Protocol),
+		CapacityBytes:       srcDrive.CapacityBytes,
+		CapableSpeedGbps:    int64(srcDrive.CapableSpeedGbs),
+		NegotiatedSpeedGbps: int64(srcDrive.NegotiatedSpeedGbs),
+		BlockSizeBytes:      int64(srcDrive.BlockSizeBytes),
+	}
+
+	for _, identifier := range srcDrive.Identifiers {
+		if strings.EqualFold(string(identifier.DurableNameFormat), "naa") &&
+			len(identifier.DurableName) > 0 {
+			dstDrive.WWN = identifier.DurableName
+			break
+		}
+	}
+
+	// include additional firmware attributes from redfish firmware inventory
+	i.firmwareAttributes("Disk", srcDrive.ID, dstDrive.Firmware)
+
+	return
 }
 
 // collectStorageControllers populates the device with Storage controller component attributes
@@ -378,6 +384,11 @@ func (i *inventory) collectStorageControllers(sys *gofishrf.ComputerSystem, devi
 	}
 
 	for _, member := range storage {
+		volumes, err := member.Volumes()
+		if err != nil {
+			return err
+		}
+
 		for _, controller := range member.StorageControllers {
 
 			c := &common.StorageController{
@@ -397,6 +408,7 @@ func (i *inventory) collectStorageControllers(sys *gofishrf.ComputerSystem, devi
 
 				ID:        controller.ID,
 				SpeedGbps: int64(controller.SpeedGbps),
+				Volumes:   []*common.VirtualDisk{},
 			}
 
 			// In some cases the storage controller model number is present in the Name field
@@ -406,6 +418,31 @@ func (i *inventory) collectStorageControllers(sys *gofishrf.ComputerSystem, devi
 
 			if len(strings.TrimSpace(c.ID)) == 0 {
 				c.ID = member.ID
+			}
+
+			for _, volume := range volumes {
+				// check if this volume belongs to this RAID controller
+				// e.g. volume ID: "Disk.Bay.0:Enclosure.Internal.0-1:RAID.SL.3-1"
+				// e.g. RAID controller ID: "RAID.SL.3-1"
+				if strings.Contains(volume.ID, ":"+c.ID) {
+
+					v := &common.VirtualDisk{
+						ID:             volume.ID,
+						Name:           volume.Name,
+						RaidType:       string(volume.VolumeType),
+						SizeBytes:      int64(volume.CapacityBytes),
+						Status:         string(volume.Status.Health),
+						PhysicalDrives: []*common.Drive{},
+					}
+					drives, err := volume.Drives()
+					if err != nil {
+						return err
+					}
+					for _, drive := range drives {
+						i.collectDrive(drive, member.ID)
+					}
+					c.Volumes = append(c.Volumes, v)
+				}
 			}
 
 			// include additional firmware attributes from redfish firmware inventory
