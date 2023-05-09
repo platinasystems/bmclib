@@ -439,7 +439,7 @@ func (i *inventory) collectStorageControllers(sys *gofishrf.ComputerSystem, devi
 						return err
 					}
 					for _, drive := range drives {
-						i.collectDrive(drive, member.ID)
+						v.PhysicalDrives = append(v.PhysicalDrives, i.collectDrive(drive, member.ID))
 					}
 					c.Volumes = append(c.Volumes, v)
 				}
