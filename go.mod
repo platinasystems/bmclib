@@ -40,4 +40,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/bmc-toolbox/common => github.com/EugenioSiciliano/common v0.0.0-20230427152428-a7872beaacc8
+replace github.com/bmc-toolbox/common => github.com/EugenioSiciliano/common v0.0.0-20230509154545-25968d0234cb
