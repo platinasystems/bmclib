@@ -1,5 +1,3 @@
-github.com/EugenioSiciliano/common v0.0.0-20230509154545-25968d0234cb h1:l+V96ugdVWiLogZDAohrn1Vn8qx1y/UA1rVEIqeogBU=
-github.com/EugenioSiciliano/common v0.0.0-20230509154545-25968d0234cb/go.mod h1:SY//n1PJjZfbFbmAsB6GvEKbc7UXz3d30s3kWxfJQ/c=
 github.com/VictorLowther/simplexml v0.0.0-20180716164440-0bff93621230 h1:t95Grn2mOPfb3+kPDWsNnj4dlNcxnvuR72IjY8eYjfQ=
 github.com/VictorLowther/simplexml v0.0.0-20180716164440-0bff93621230/go.mod h1:t2EzW1qybnPDQ3LR/GgeF0GOzHUXT5IVMLP2gkW1cmc=
 github.com/VictorLowther/soap v0.0.0-20150314151524-8e36fca84b22 h1:a0MBqYm44o0NcthLKCljZHe1mxlN6oahCQHHThnSwB4=
@@ -33,6 +31,8 @@ github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
 github.com/kr/text v0.2.0/go.mod h1:eLer722TekiGuMkidMxC/pM04lWEeraHUUmBw8l2grE=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
+github.com/platinasystems/common v0.0.0-20230509154545-25968d0234cb h1:jUk3/1mjJTo9F6NIKAiokPSo13LHvNyc+lM3PuXVFsI=
+github.com/platinasystems/common v0.0.0-20230509154545-25968d0234cb/go.mod h1:SY//n1PJjZfbFbmAsB6GvEKbc7UXz3d30s3kWxfJQ/c=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/satori/go.uuid v1.2.0 h1:0uYX9dsZ2yD7q2RtLRtPSdGDWzjeM3TbMJP9utgA0ww=
