@@ -1,6 +1,7 @@
 package redfish
 
 import (
+	common2 "github.com/stmcginnis/gofish/common"
 	"math"
 	"strings"
 
@@ -362,13 +363,7 @@ func (i *inventory) collectDrive(srcDrive *gofishrf.Drive, controllerID string) 
 		BlockSizeBytes:      int64(srcDrive.BlockSizeBytes),
 	}
 
-	for _, identifier := range srcDrive.Identifiers {
-		if strings.EqualFold(string(identifier.DurableNameFormat), "naa") &&
-			len(identifier.DurableName) > 0 {
-			dstDrive.WWN = identifier.DurableName
-			break
-		}
-	}
+	dstDrive.WWN = getNAAIdentifier(srcDrive.Identifiers)
 
 	// include additional firmware attributes from redfish firmware inventory
 	i.firmwareAttributes("Disk", srcDrive.ID, dstDrive.Firmware)
@@ -410,6 +405,8 @@ func (i *inventory) collectStorageControllers(sys *gofishrf.ComputerSystem, devi
 				SpeedGbps: int64(controller.SpeedGbps),
 				Volumes:   []*common.VirtualDisk{},
 			}
+
+			c.PhysicalID = getNAAIdentifier(controller.Identifiers)
 
 			// In some cases the storage controller model number is present in the Name field
 			if strings.TrimSpace(c.Model) == "" && strings.TrimSpace(controller.Name) != "" {
@@ -454,6 +451,16 @@ func (i *inventory) collectStorageControllers(sys *gofishrf.ComputerSystem, devi
 	}
 
 	return nil
+}
+
+func getNAAIdentifier(identifiers []common2.Identifier) string {
+	for _, id := range identifiers {
+		if strings.EqualFold(string(id.DurableNameFormat), "naa") &&
+			len(id.DurableName) > 0 {
+			return id.DurableName
+		}
+	}
+	return ""
 }
 
 // collectCPUs populates the device with CPU component attributes
