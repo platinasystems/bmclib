@@ -1,8 +1,10 @@
 package redfish
 
 import (
+	"fmt"
 	common2 "github.com/stmcginnis/gofish/common"
 	"math"
+	"net"
 	"strings"
 
 	"github.com/bmc-toolbox/common"
@@ -215,6 +217,7 @@ func (i *inventory) collectNetworkPortInfo(
 
 		if len(networkPort.AssociatedNetworkAddresses) > 0 {
 			for _, macAddress := range networkPort.AssociatedNetworkAddresses {
+				macAddress = normalizeMACAddress(macAddress)
 				if len(macAddress) > 0 && macAddress != "00:00:00:00:00:00" {
 					nicPort.MacAddress = macAddress // first valid value only
 					break
@@ -232,6 +235,11 @@ func (i *inventory) collectNetworkPortInfo(
 	}
 }
 
+// changes dashes in MAC address into colons
+func normalizeMACAddress(srcMACAddress string) (macAddress string) {
+	return strings.Replace(srcMACAddress, "-", ":", -1)
+}
+
 func (i *inventory) collectEthernetInfo(nicPort *common.NICPort, ethernetInterfaces []*gofishrf.EthernetInterface) {
 	if nicPort == nil {
 		return
@@ -239,8 +247,11 @@ func (i *inventory) collectEthernetInfo(nicPort *common.NICPort, ethernetInterfa
 
 	// populate mac address et al. from matching ethernet interface
 	for _, ethInterface := range ethernetInterfaces {
-		// the ethernet interface includes the port, position number and function NIC.Slot.3-1-1
-		if !strings.HasPrefix(ethInterface.ID, nicPort.ID) {
+
+		macAddress := normalizeMACAddress(ethInterface.MACAddress)
+		if len(macAddress) == 0 ||
+			macAddress == "00:00:00:00:00:00" ||
+			!strings.EqualFold(macAddress, nicPort.MacAddress) {
 			continue
 		}
 
@@ -260,7 +271,7 @@ func (i *inventory) collectEthernetInfo(nicPort *common.NICPort, ethernetInterfa
 			}
 			nicPort.Status.State = string(ethInterface.Status.State)
 		}
-		nicPort.ID = ethInterface.ID // override ID
+
 		if ethInterface.SpeedMbps > 0 {
 			nicPort.SpeedBits = int64(ethInterface.SpeedMbps) * int64(math.Pow10(6))
 		}
@@ -269,7 +280,49 @@ func (i *inventory) collectEthernetInfo(nicPort *common.NICPort, ethernetInterfa
 		nicPort.MTUSize = ethInterface.MTUSize
 
 		// always override mac address
-		nicPort.MacAddress = ethInterface.MACAddress
+		nicPort.MacAddress = macAddress
+
+		if len(ethInterface.IPv4Addresses) > 0 {
+			if nicPort.IPv4Addresses == nil {
+				nicPort.IPv4Addresses = make([]common.IPAddress, 0)
+			}
+			for _, ipv4Address := range ethInterface.IPv4Addresses {
+
+				if len(ipv4Address.Address) == 0 || ipv4Address.Address == "0.0.0.0" {
+					// if ipv4 address is empty, skip
+					continue
+				}
+
+				nicPort.IPv4Addresses = append(nicPort.IPv4Addresses, common.IPAddress{
+					Address:    ipv4Address.Address,
+					Gateway:    ipv4Address.Gateway,
+					SubnetMask: ipv4Address.SubnetMask,
+				})
+			}
+			for _, ipv6Address := range ethInterface.IPv6Addresses {
+
+				if len(ipv6Address.Address) == 0 {
+					// if IP address is empty, skip
+					continue
+				}
+
+				ipv6 := net.ParseIP(ipv6Address.Address)
+				if len(ipv6) == 0 || ipv6.Equal(net.IPv6zero) {
+					// if IP address is empty, skip
+					continue
+				}
+
+				addressData := common.IPAddress{
+					Address:    ipv6Address.Address,
+					SubnetMask: fmt.Sprintf("%d", ipv6Address.PrefixLength),
+				}
+				if len(ethInterface.IPv6DefaultGateway) > 0 {
+					addressData.Gateway = ethInterface.IPv6DefaultGateway
+				}
+				nicPort.IPv6Addresses = append(nicPort.IPv6Addresses, addressData)
+			}
+		}
+
 		break // stop at first match
 	}
 }
