@@ -40,4 +40,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/bmc-toolbox/common => github.com/platinasystems/common v0.0.0-20230717175657-3e14a167f789
+replace github.com/bmc-toolbox/common => github.com/platinasystems/common v0.0.0-20231030142654-8ba3f3cf8d70
