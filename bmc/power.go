@@ -75,8 +75,13 @@ func setPowerState(ctx context.Context, timeout time.Duration, state string, p [
 
 // SetPowerStateFromInterfaces identifies implementations of the PostStateSetter interface and passes the found implementations to the setPowerState() wrapper.
 func SetPowerStateFromInterfaces(ctx context.Context, timeout time.Duration, state string, generic []interface{}) (ok bool, metadata Metadata, err error) {
+	metadata = newMetadata()
+
 	powerSetter := make([]powerProviders, 0)
 	for _, elem := range generic {
+		if elem == nil {
+			continue
+		}
 		temp := powerProviders{name: getProviderName(elem)}
 		switch p := elem.(type) {
 		case PowerSetter:
@@ -126,8 +131,13 @@ func getPowerState(ctx context.Context, timeout time.Duration, p []powerProvider
 
 // GetPowerStateFromInterfaces identifies implementations of the PostStateGetter interface and passes the found implementations to the getPowerState() wrapper.
 func GetPowerStateFromInterfaces(ctx context.Context, timeout time.Duration, generic []interface{}) (state string, metadata Metadata, err error) {
+	metadata = newMetadata()
+
 	powerStateGetter := make([]powerProviders, 0)
 	for _, elem := range generic {
+		if elem == nil {
+			continue
+		}
 		temp := powerProviders{name: getProviderName(elem)}
 		switch p := elem.(type) {
 		case PowerStateGetter:

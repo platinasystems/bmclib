@@ -11,13 +11,32 @@ import (
 	rf "github.com/stmcginnis/gofish/redfish"
 )
 
+// PowerSet sets the power state of a server
+func (c *Client) PowerSet(ctx context.Context, state string) (ok bool, err error) {
+	// TODO: create consts for the state values
+	switch strings.ToLower(state) {
+	case "on":
+		return c.SystemPowerOn(ctx)
+	case "off":
+		return c.SystemForceOff(ctx)
+	case "soft":
+		return c.SystemPowerOff(ctx)
+	case "reset":
+		return c.SystemReset(ctx)
+	case "cycle":
+		return c.SystemPowerCycle(ctx)
+	default:
+		return false, errors.New("unknown power action")
+	}
+}
+
 // BMCReset powercycles the BMC.
 func (c *Client) BMCReset(ctx context.Context, resetType string) (ok bool, err error) {
 	if err := c.SessionActive(); err != nil {
 		return false, errors.Wrap(bmclibErrs.ErrNotAuthenticated, err.Error())
 	}
 
-	managers, err := c.client.Service.Managers()
+	managers, err := c.Managers(ctx)
 	if err != nil {
 		return false, err
 	}
@@ -38,8 +57,7 @@ func (c *Client) SystemPowerOn(ctx context.Context) (ok bool, err error) {
 		return false, errors.Wrap(bmclibErrs.ErrNotAuthenticated, err.Error())
 	}
 
-	service := c.client.Service
-	ss, err := service.Systems()
+	ss, err := c.Systems()
 	if err != nil {
 		return false, err
 	}
@@ -65,8 +83,7 @@ func (c *Client) SystemPowerOff(ctx context.Context) (ok bool, err error) {
 		return false, errors.Wrap(bmclibErrs.ErrNotAuthenticated, err.Error())
 	}
 
-	service := c.client.Service
-	ss, err := service.Systems()
+	ss, err := c.Systems()
 	if err != nil {
 		return false, err
 	}
@@ -93,8 +110,7 @@ func (c *Client) SystemReset(ctx context.Context) (ok bool, err error) {
 		return false, errors.Wrap(bmclibErrs.ErrNotAuthenticated, err.Error())
 	}
 
-	service := c.client.Service
-	ss, err := service.Systems()
+	ss, err := c.Systems()
 	if err != nil {
 		return false, err
 	}
@@ -128,8 +144,7 @@ func (c *Client) SystemPowerCycle(ctx context.Context) (ok bool, err error) {
 		return false, errors.Wrap(bmclibErrs.ErrNotAuthenticated, err.Error())
 	}
 
-	service := c.client.Service
-	ss, err := service.Systems()
+	ss, err := c.Systems()
 	if err != nil {
 		return false, err
 	}
@@ -161,8 +176,7 @@ func (c *Client) SystemPowerStatus(ctx context.Context) (result string, err erro
 		return result, errors.Wrap(bmclibErrs.ErrNotAuthenticated, err.Error())
 	}
 
-	service := c.client.Service
-	ss, err := service.Systems()
+	ss, err := c.Systems()
 	if err != nil {
 		return "", err
 	}
@@ -180,8 +194,7 @@ func (c *Client) SystemForceOff(ctx context.Context) (ok bool, err error) {
 		return false, errors.Wrap(bmclibErrs.ErrNotAuthenticated, err.Error())
 	}
 
-	service := c.client.Service
-	ss, err := service.Systems()
+	ss, err := c.Systems()
 	if err != nil {
 		return false, err
 	}
@@ -200,4 +213,24 @@ func (c *Client) SystemForceOff(ctx context.Context) (ok bool, err error) {
 	}
 
 	return true, nil
+}
+
+// SendNMI tells the BMC to issue an NMI to the device
+func (c *Client) SendNMI(_ context.Context) error {
+	if err := c.SessionActive(); err != nil {
+		return errors.Wrap(bmclibErrs.ErrNotAuthenticated, err.Error())
+	}
+
+	ss, err := c.Systems()
+	if err != nil {
+		return err
+	}
+
+	for _, system := range ss {
+		if err = system.Reset(rf.NmiResetType); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
