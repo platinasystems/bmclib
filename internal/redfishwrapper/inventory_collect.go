@@ -1,7 +1,10 @@
 package redfishwrapper
 
 import (
+	"fmt"
+	common2 "github.com/stmcginnis/gofish/common"
 	"math"
+	"net"
 	"strings"
 
 	"github.com/bmc-toolbox/common"
@@ -183,6 +186,7 @@ func (c *Client) collectNICs(sys *redfish.ComputerSystem, device *common.Device,
 
 		device.NICs = append(device.NICs, n)
 	}
+	c.logger.Info("collected NICs", "count", len(device.NICs))
 
 	return nil
 }
@@ -219,6 +223,7 @@ func (c *Client) collectNetworkPortInfo(
 
 		if len(networkPort.AssociatedNetworkAddresses) > 0 {
 			for _, macAddress := range networkPort.AssociatedNetworkAddresses {
+				macAddress = normalizeMACAddress(macAddress)
 				if len(macAddress) > 0 && macAddress != "00:00:00:00:00:00" {
 					nicPort.MacAddress = macAddress // first valid value only
 					break
@@ -236,6 +241,11 @@ func (c *Client) collectNetworkPortInfo(
 	}
 }
 
+// changes dashes in MAC address into colons
+func normalizeMACAddress(srcMACAddress string) (macAddress string) {
+	return strings.Replace(srcMACAddress, "-", ":", -1)
+}
+
 func (c *Client) collectEthernetInfo(nicPort *common.NICPort, ethernetInterfaces []*redfish.EthernetInterface) {
 	if nicPort == nil {
 		return
@@ -243,8 +253,10 @@ func (c *Client) collectEthernetInfo(nicPort *common.NICPort, ethernetInterfaces
 
 	// populate mac address et al. from matching ethernet interface
 	for _, ethInterface := range ethernetInterfaces {
-		// the ethernet interface includes the port, position number and function NIC.Slot.3-1-1
-		if !strings.HasPrefix(ethInterface.ID, nicPort.ID) {
+		macAddress := normalizeMACAddress(ethInterface.MACAddress)
+		if len(macAddress) == 0 ||
+			macAddress == "00:00:00:00:00:00" ||
+			!strings.EqualFold(macAddress, nicPort.MacAddress) {
 			continue
 		}
 
@@ -264,7 +276,7 @@ func (c *Client) collectEthernetInfo(nicPort *common.NICPort, ethernetInterfaces
 			}
 			nicPort.Status.State = string(ethInterface.Status.State)
 		}
-		nicPort.ID = ethInterface.ID // override ID
+
 		if ethInterface.SpeedMbps > 0 {
 			nicPort.SpeedBits = int64(ethInterface.SpeedMbps) * int64(math.Pow10(6))
 		}
@@ -273,7 +285,49 @@ func (c *Client) collectEthernetInfo(nicPort *common.NICPort, ethernetInterfaces
 		nicPort.MTUSize = ethInterface.MTUSize
 
 		// always override mac address
-		nicPort.MacAddress = ethInterface.MACAddress
+		nicPort.MacAddress = macAddress
+
+		if len(ethInterface.IPv4Addresses) > 0 {
+			if nicPort.IPv4Addresses == nil {
+				nicPort.IPv4Addresses = make([]common.IPAddress, 0)
+			}
+			for _, ipv4Address := range ethInterface.IPv4Addresses {
+
+				if len(ipv4Address.Address) == 0 || ipv4Address.Address == "0.0.0.0" {
+					// if ipv4 address is empty, skip
+					continue
+				}
+
+				nicPort.IPv4Addresses = append(nicPort.IPv4Addresses, common.IPAddress{
+					Address:    ipv4Address.Address,
+					Gateway:    ipv4Address.Gateway,
+					SubnetMask: ipv4Address.SubnetMask,
+				})
+			}
+			for _, ipv6Address := range ethInterface.IPv6Addresses {
+
+				if len(ipv6Address.Address) == 0 {
+					// if IP address is empty, skip
+					continue
+				}
+
+				ipv6 := net.ParseIP(ipv6Address.Address)
+				if len(ipv6) == 0 || ipv6.Equal(net.IPv6zero) {
+					// if IP address is empty, skip
+					continue
+				}
+
+				addressData := common.IPAddress{
+					Address:    ipv6Address.Address,
+					SubnetMask: fmt.Sprintf("%d", ipv6Address.PrefixLength),
+				}
+				if len(ethInterface.IPv6DefaultGateway) > 0 {
+					addressData.Gateway = ethInterface.IPv6DefaultGateway
+				}
+				nicPort.IPv6Addresses = append(nicPort.IPv6Addresses, addressData)
+			}
+		}
+
 		break // stop at first match
 	}
 }
@@ -313,6 +367,7 @@ func (c *Client) collectBIOS(sys *redfish.ComputerSystem, device *common.Device,
 
 // collectDrives collects drive component information
 func (c *Client) collectDrives(sys *redfish.ComputerSystem, device *common.Device, softwareInventory []*redfish.SoftwareInventory) (err error) {
+	c.logger.Info("collecting storage")
 	storage, err := sys.Storage()
 	if err != nil {
 		return err
@@ -329,42 +384,51 @@ func (c *Client) collectDrives(sys *redfish.ComputerSystem, device *common.Devic
 		}
 
 		for _, drive := range drives {
-			d := &common.Drive{
-				Common: common.Common{
-					ProductName: drive.Model,
-					Description: drive.Description,
-					Serial:      drive.SerialNumber,
-					Vendor:      common.FormatVendorName(drive.Manufacturer),
-					Model:       drive.Model,
-					Firmware: &common.Firmware{
-						Installed: drive.Revision,
-					},
-					Status: &common.Status{
-						Health: string(drive.Status.Health),
-						State:  string(drive.Status.State),
-					},
-				},
-
-				ID:                  drive.ID,
-				Type:                string(drive.MediaType),
-				StorageController:   member.ID,
-				Protocol:            string(drive.Protocol),
-				CapacityBytes:       drive.CapacityBytes,
-				CapableSpeedGbps:    int64(drive.CapableSpeedGbs),
-				NegotiatedSpeedGbps: int64(drive.NegotiatedSpeedGbs),
-				BlockSizeBytes:      int64(drive.BlockSizeBytes),
-			}
-
-			// include additional firmware attributes from redfish firmware inventory
-			c.firmwareAttributes("Disk", drive.ID, d.Firmware, softwareInventory)
-
-			device.Drives = append(device.Drives, d)
-
+			device.Drives = append(device.Drives, c.collectDrive(drive, member.ID, softwareInventory))
 		}
 
 	}
 
 	return nil
+}
+
+func (c *Client) collectDrive(srcDrive *redfish.Drive, controllerID string, softwareInventory []*redfish.SoftwareInventory) (dstDrive *common.Drive) {
+	if srcDrive == nil {
+		return
+	}
+
+	dstDrive = &common.Drive{
+		Common: common.Common{
+			ProductName: srcDrive.Name,
+			Description: srcDrive.Description,
+			Serial:      srcDrive.SerialNumber,
+			Vendor:      common.FormatVendorName(srcDrive.Manufacturer),
+			Model:       srcDrive.Model,
+			Firmware: &common.Firmware{
+				Installed: srcDrive.Revision,
+			},
+			Status: &common.Status{
+				Health: string(srcDrive.Status.Health),
+				State:  string(srcDrive.Status.State),
+			},
+		},
+
+		ID:                  srcDrive.ID,
+		Type:                string(srcDrive.MediaType),
+		StorageController:   controllerID,
+		Protocol:            string(srcDrive.Protocol),
+		CapacityBytes:       srcDrive.CapacityBytes,
+		CapableSpeedGbps:    int64(srcDrive.CapableSpeedGbs),
+		NegotiatedSpeedGbps: int64(srcDrive.NegotiatedSpeedGbs),
+		BlockSizeBytes:      int64(srcDrive.BlockSizeBytes),
+	}
+
+	dstDrive.WWN = getNAAIdentifier(srcDrive.Identifiers)
+
+	// include additional firmware attributes from redfish firmware inventory
+	c.firmwareAttributes("Disk", srcDrive.ID, dstDrive.Firmware, softwareInventory)
+
+	return
 }
 
 // collectStorageControllers populates the device with Storage controller component attributes
@@ -375,6 +439,11 @@ func (c *Client) collectStorageControllers(sys *redfish.ComputerSystem, device *
 	}
 
 	for _, member := range storage {
+		volumes, err := member.Volumes()
+		if err != nil {
+			return err
+		}
+
 		for _, controller := range member.StorageControllers {
 
 			cs := &common.StorageController{
@@ -394,11 +463,43 @@ func (c *Client) collectStorageControllers(sys *redfish.ComputerSystem, device *
 
 				ID:        controller.ID,
 				SpeedGbps: int64(controller.SpeedGbps),
+				Volumes:   []*common.VirtualDisk{},
 			}
+
+			cs.PhysicalID = getNAAIdentifier(controller.Identifiers)
 
 			// In some cases the storage controller model number is present in the Name field
 			if strings.TrimSpace(cs.Model) == "" && strings.TrimSpace(controller.Name) != "" {
 				cs.Model = controller.Name
+			}
+
+			if len(strings.TrimSpace(cs.ID)) == 0 {
+				cs.ID = member.ID
+			}
+
+			for _, volume := range volumes {
+				// check if this volume belongs to this RAID controller
+				// e.g. volume ID: "Disk.Bay.0:Enclosure.Internal.0-1:RAID.SL.3-1"
+				// e.g. RAID controller ID: "RAID.SL.3-1"
+				if strings.Contains(volume.ID, ":"+cs.ID) {
+
+					v := &common.VirtualDisk{
+						ID:             volume.ID,
+						Name:           volume.Name,
+						RaidType:       string(volume.VolumeType),
+						SizeBytes:      int64(volume.CapacityBytes),
+						Status:         string(volume.Status.Health),
+						PhysicalDrives: []*common.Drive{},
+					}
+					drives, err := volume.Drives()
+					if err != nil {
+						return err
+					}
+					for _, drive := range drives {
+						v.PhysicalDrives = append(v.PhysicalDrives, c.collectDrive(drive, member.ID, softwareInventory))
+					}
+					cs.Volumes = append(cs.Volumes, v)
+				}
 			}
 
 			// include additional firmware attributes from redfish firmware inventory
@@ -411,8 +512,19 @@ func (c *Client) collectStorageControllers(sys *redfish.ComputerSystem, device *
 	return nil
 }
 
+func getNAAIdentifier(identifiers []common2.Identifier) string {
+	for _, id := range identifiers {
+		if strings.EqualFold(string(id.DurableNameFormat), "naa") &&
+			len(id.DurableName) > 0 {
+			return id.DurableName
+		}
+	}
+	return ""
+}
+
 // collectCPUs populates the device with CPU component attributes
 func (c *Client) collectCPUs(sys *redfish.ComputerSystem, device *common.Device, _ []*redfish.SoftwareInventory) (err error) {
+	c.logger.Info("collecting CPUs")
 	procs, err := sys.Processors()
 	if err != nil {
 		return err
@@ -452,6 +564,7 @@ func (c *Client) collectCPUs(sys *redfish.ComputerSystem, device *common.Device,
 
 // collectDIMMs populates the device with memory component attributes
 func (c *Client) collectDIMMs(sys *redfish.ComputerSystem, device *common.Device, softwareInventory []*redfish.SoftwareInventory) (err error) {
+	c.logger.Info("collecting RAM banks")
 	dimms, err := sys.Memory()
 	if err != nil {
 		return err

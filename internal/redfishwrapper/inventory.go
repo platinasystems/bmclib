@@ -2,6 +2,7 @@ package redfishwrapper
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	bmclibErrs "github.com/bmc-toolbox/bmclib/v2/errors"
@@ -199,7 +200,10 @@ func (c *Client) systemAttributes(device *common.Device, failOnError bool, softw
 		return err
 	}
 
+	c.logger.Info(fmt.Sprintf("Number of systems found: %d", len(systems)))
+
 	compatible := 0
+	device.Mainboard = &common.Mainboard{}
 	for _, sys := range systems {
 		if !c.compatibleOdataID(sys.ODataID, knownSystemsOdataIDs) {
 			continue
@@ -207,10 +211,32 @@ func (c *Client) systemAttributes(device *common.Device, failOnError bool, softw
 
 		compatible++
 
-		if sys.Manufacturer != "" && sys.Model != "" && sys.SerialNumber != "" {
-			device.Vendor = sys.Manufacturer
-			device.Model = sys.Model
-			device.Serial = sys.SerialNumber
+		uuid := strings.TrimSpace(sys.UUID)
+		if len(uuid) > 0 {
+			device.UUID = uuid
+		}
+
+		manufacturer := strings.TrimSpace(sys.Manufacturer)
+		if len(manufacturer) > 0 {
+			device.Vendor = manufacturer
+			device.Mainboard.Vendor = manufacturer
+		}
+
+		model := strings.TrimSpace(sys.Model)
+		if len(model) > 0 {
+			device.Model = model
+			device.Mainboard.Model = model
+			device.Mainboard.ProductName = model
+		}
+
+		boardSerialNumber := strings.TrimSpace(sys.SerialNumber)
+		if len(boardSerialNumber) > 0 {
+			device.Mainboard.Serial = boardSerialNumber
+		}
+
+		productSerialNumber := strings.TrimSpace(sys.SKU)
+		if len(productSerialNumber) > 0 {
+			device.Serial = productSerialNumber
 		}
 
 		type collectorFuncs []func(
